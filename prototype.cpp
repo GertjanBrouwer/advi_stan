@@ -19,6 +19,8 @@
 
 int main() {
     std::cout << "Hello world" << std::endl;
+    int x = 10;
+    std::cout << "Not up to date" << std::endl;
     return 0;
 }
 
