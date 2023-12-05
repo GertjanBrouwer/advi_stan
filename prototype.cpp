@@ -2,10 +2,10 @@
 #include<sys/wait.h> // wait()
 
 // RapidJSON
-#include "include/rapidjson/document.h" 
-#include "include/rapidjson/filewritestream.h" 
-#include "include/rapidjson/ostreamwrapper.h"
-#include "include/rapidjson/writer.h"
+// #include "include/rapidjson/document.h" 
+// #include "include/rapidjson/filewritestream.h" 
+// #include "include/rapidjson/ostreamwrapper.h"
+// #include "include/rapidjson/writer.h"
 #include<fstream>
 
 // stan test

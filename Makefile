@@ -21,10 +21,10 @@ LDFLAGS := $(CMDSTAN)/stan/lib/stan_math/lib/tbb/libtbb.so.2 -Wl,-rpath,$(CMDSTA
 all: prototype
 
 clean:
-	rm -f prototype mean_model.hpp
+	rm -f build/prototype build/mean_model.hpp
 
-mean_model.hpp: mean_model.stan
-	$(CMDSTAN)/bin/stanc $< --o mean_model.hpp
+mean_model.hpp: models/mean_model.stan
+	$(CMDSTAN)/bin/stanc $< --o build/mean_model.hpp
 
 prototype: prototype.cpp mean_model.hpp
-	g++ $(CXXFLAGS) $< -o $@ $(LDFLAGS)
+	g++ $(CXXFLAGS) $< -o build/$@ $(LDFLAGS)

@@ -1,0 +1,27 @@
+# stan_version_major = 2
+# stan_version_minor = 33
+# stan_version_patch = 0
+# model = bernoulli_model
+# start_datetime = 2023-11-30 11:50:01 UTC
+# method = log_prob
+#   log_prob
+#     unconstrained_params =  (Default)
+#     constrained_params = constrained.json
+#     jacobian = 0
+# id = 1 (Default)
+# data
+#   file = bernoulli.data.json
+# init = 2 (Default)
+# random
+#   seed = 658116986 (Default)
+# output
+#   file = output.csv (Default)
+#   diagnostic_file =  (Default)
+#   refresh = 100 (Default)
+#   sig_figs = -1 (Default)
+#   profile_file = profile.csv (Default)
+# num_threads = 1 (Default)
+# stanc_version = stanc3 v2.33.1
+# stancflags = 
+lp__,g_theta
+-5.00402,0
