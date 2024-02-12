@@ -1,6 +1,6 @@
 data {
-  //int<lower=0> N;
-  array[10000] real y;
+  int<lower=0> N;
+  array[N] real y;
 }
 
 parameters {
