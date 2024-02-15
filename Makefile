@@ -24,8 +24,11 @@ all: build/prototype
 clean:
 	rm -f build/prototype build/mean_model.hpp
 
-build/mean_model.hpp: models/mean_model.stan
+build/mean_model.hpp: models/mean_model.stan | build
 	$(CMDSTAN)/bin/stanc $< --o $@
 
 build/prototype: prototype.cpp build/mean_model.hpp
 	g++ $(CXXFLAGS) $< -o $@ $(LDFLAGS)
+
+build:
+	mkdir build
