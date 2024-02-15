@@ -2,8 +2,8 @@ CMDSTAN := /home/gertjan/Documents/Thesis/cmdstan-2.33.1
 
 CXXFLAGS := -I $(CMDSTAN)/stan/src
 CXXFLAGS += -I $(CMDSTAN)/stan/lib/rapidjson_1.1.0
-CXXFLAGS += -I $(CMDSTAN)/stan/lib/stan_math
-CXXFLAGS += -I $(CMDSTAN)/stan/lib/stan_math/lib/eigen_3.4.0 
+CXXFLAGS += -isystem $(CMDSTAN)/stan/lib/stan_math
+CXXFLAGS += -isystem $(CMDSTAN)/stan/lib/stan_math/lib/eigen_3.4.0
 CXXFLAGS += -I $(CMDSTAN)/stan/lib/stan_math/lib/tbb
 CXXFLAGS += -I $(CMDSTAN)/stan/lib/stan_math/lib/tbb_2020.3/include
 CXXFLAGS += -I $(CMDSTAN)/stan/lib/stan_math/lib/sundials_6.1.1/include
