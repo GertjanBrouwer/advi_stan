@@ -1,5 +1,8 @@
-//#include <stan/model/model_header.hpp>
+// Note: the model.hpp needs to be the first include, so that it can be a
+// precompiled header.
 #include "build/mean_model.hpp"
+
+//#include <stan/model/model_header.hpp>
 #include <stan/io/empty_var_context.hpp>
 #include <stan/io/json/json_data.hpp>
 namespace mm = mean_model_model_namespace;
