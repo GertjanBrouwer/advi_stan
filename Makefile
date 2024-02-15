@@ -10,6 +10,8 @@ CXXFLAGS += -I $(CMDSTAN)/stan/lib/stan_math/lib/sundials_6.1.1/include
 CXXFLAGS += -I $(CMDSTAN)/stan/lib/stan_math/lib/boost_1.78.0
 CXXFLAGS += -D_REENTRANT -DBOOST_DISABLE_ASSERTS
 
+MODEL_NAME := mean_model
+
 DEBUG ?= 0
 ifeq ($(DEBUG), 1)
 	CXXFLAGS += -g -O0
@@ -22,15 +24,15 @@ LDFLAGS := $(CMDSTAN)/stan/lib/stan_math/lib/tbb/libtbb.so.2 -Wl,-rpath,$(CMDSTA
 all: build/prototype
 
 clean:
-	rm -f build/prototype build/mean_model.hpp build/mean_model.hpp.gch
+	rm -f build/prototype build/*.hpp build/*.hpp.gch
 
-build/mean_model.hpp: models/mean_model.stan | build
+build/$(MODEL_NAME).hpp: models/$(MODEL_NAME).stan | build
 	$(CMDSTAN)/bin/stanc $< --o $@
 
-build/mean_model.hpp.gch: build/mean_model.hpp
+build/$(MODEL_NAME).hpp.gch: build/$(MODEL_NAME).hpp
 	g++ $(CXXFLAGS) $< -o $@
 
-build/prototype: prototype.cpp build/mean_model.hpp.gch
+build/prototype: prototype.cpp build/$(MODEL_NAME).hpp.gch
 	g++ $(CXXFLAGS) $< -o $@ $(LDFLAGS) -Winvalid-pch
 
 build:
