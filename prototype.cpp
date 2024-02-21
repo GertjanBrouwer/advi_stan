@@ -2,29 +2,26 @@
 #include "build/mean_model.hpp"
 #include <stan/io/empty_var_context.hpp>
 #include <stan/io/json/json_data.hpp>
-namespace mm = mean_model_model_namespace;
+#include <stan/model/gradient.hpp>
+#include <stan/services/util/create_rng.hpp>
+
 #include<iostream>
 #include<filesystem>
 #include<vector>
 #include<variant>
+#include<time.h>
+
+namespace mm = mean_model_model_namespace;
 
 int main() {
-    //stan::model::model_base* model;
+    // TODO: Vergelijken met advi.hpp, daar worden modellen anders gebruikt.
+    //stan::model::model_base* model; unrelated to above TODO.
     mm::mean_model_model* model;
     std::ifstream in("data/data.json");
     stan::json::json_data data_context(in);
     unsigned int seed = 1234;
     model = new mm::mean_model_model(data_context, seed, &std::cout);
 
-    std::vector<double> x = std::vector<double>{0.2};
-    std::vector<int> y = std::vector<int>{1, 0, 0, 0, 1, 0, 0, 0, 0, 1};
-
-    Eigen::Matrix<stan::math::var, -1, 1> eigen_x(1);
-    Eigen::Matrix<double, -1, 1> eigen_double(1);
-    Eigen::Matrix<int, -1, 1> eigen_int(1);
-    eigen_x[0] = 1.4;
-    eigen_int[0] = 1;
-    eigen_double[0] = 0.2;
     
     // working gradient, mean should be 0.3, thus with 0.2 it returns 1
     // input 1.3 returns -1000000000000000
@@ -32,12 +29,103 @@ int main() {
     // input 0.2 returns +100000000000000
     // input 0.30000000001 returns -10000.0234375
 
-    // data above from function log_prob_jacobian
-    stan::math::var lp = model->log_prob<false, false, stan::math::var>(eigen_x, &std::cout);
-    stan::math::grad(lp.vi_);
-    Eigen::VectorXd working_gradient = eigen_x.adj();
+    // Adam optimizer
+    double step_size = 0.01;
+    double b1 = 0.9;
+    double b2 = 0.999;
+    double eps = 1e-8;
+    double m_mu = 0;
+    double v_mu = 0;
+    double m_hat_mu = 0;
+    double v_hat_mu = 0;
+    double m_omega = 0;
+    double v_omega = 0;
+    double m_hat_omega = 0;
+    double v_hat_omega = 0;
+    double mu_step = 0;
+    double omega_step = 0;
 
-    auto grd = model->log_prob_impl<false, false>(eigen_x, eigen_int, &std::cout);
+    Eigen::VectorXd working_gradient;
+    Eigen::VectorXd mu = Eigen::VectorXd::Zero(1);
+    mu[0] = 0;
+    Eigen::VectorXd omega = Eigen::VectorXd::Zero(1);
+    omega[0] = 1;
+    Eigen::VectorXd mu_grad = Eigen::VectorXd::Zero(1);
+    Eigen::VectorXd omega_grad = Eigen::VectorXd::Zero(1);
+    Eigen::VectorXd gradient = Eigen::VectorXd::Zero(1);
+    double temp_lp = 0.0;
+    Eigen::VectorXd eta = Eigen::VectorXd::Zero(1);
+    Eigen::VectorXd zeta = Eigen::VectorXd::Zero(1);
+    Eigen::Matrix<stan::math::var, -1, 1> eigen_x(1);
+    eigen_x[0] = 0; // TODO: Stan inits uniformly [-2,2]
+    // This is not used bit still required as an input.
+    Eigen::Matrix<int, -1, 1> eigen_int(1);
+    eigen_int[0] = 1;
+    auto rng = stan::services::util::create_rng(1234, 0);
+
+
+    // Parameter updates iteration
+    for (int t = 0; t < 1000; t++)
+    {
+        // data above from function log_prob_jacobian
+        // false, false, but advi.hpp uses false, true. Have to check this with a reparameterization model
+        //stan::math::var lp = model->log_prob<false, false, stan::math::var>(eigen_x, &std::cout);
+        int m = 5; // monte carlo samples
+        for (int i = 0; i < m; i++) {
+            eta[0] = stan::math::normal_rng(0, 1, rng);
+            //zeta = omega squared * eta + mu 
+            zeta = eta.array().cwiseProduct(omega.array().exp()) + mu.array();
+            //std::cout << "zeta: " << zeta[0] << std::endl;
+            eigen_x[0] = zeta[0];
+            // clock_t cbegin = clock();
+            auto lp = model->log_prob<false, false, stan::math::var>(eigen_x, &std::cout);
+            stan::math::grad(lp.vi_);
+            // clock_t cend = clock();
+            // std::cout << (double)(cend - cbegin) / CLOCKS_PER_SEC << '\n';
+            //stan::model::gradient();
+            //stan::model::gradient(lp, eigen_x, temp_lp, gradient, &std::cout);
+            working_gradient = eigen_x.adj();
+            mu_grad += working_gradient;
+            omega_grad.array() += working_gradient.array().cwiseProduct(eta.array());
+        }
+
+        mu_grad /= static_cast<double>(m);
+        omega_grad /= static_cast<double>(m);
+        omega_grad.array() = omega_grad.array().cwiseProduct(omega.array().exp()) + 1;  //entropy
+
+        m_mu = b1 * m_mu + (1 - b1) * mu_grad[0];
+        v_mu = b2 * v_mu + (1 - b2) * pow(mu_grad[0], 2);
+        m_hat_mu = m_mu / (1 - pow(b1, t + 1));
+        v_hat_mu = v_mu / (1 - pow(b2, t + 1));
+        mu_step = step_size * m_hat_mu / (sqrt(v_hat_mu) + eps);
+        mu[0] += step_size * m_hat_mu / (sqrt(v_hat_mu) + eps);
+
+        m_omega = b1 * m_omega + (1 - b1) * omega_grad[0];
+        v_omega = b2 * v_omega + (1 - b2) * pow(omega_grad[0], 2);
+        m_hat_omega = m_omega / (1 - pow(b1, t + 1));
+        v_hat_omega = v_omega / (1 - pow(b2, t + 1));
+        omega_step = step_size * m_hat_omega / (sqrt(v_hat_omega) + eps);
+        omega[0] += step_size * m_hat_omega / (sqrt(v_hat_omega) + eps);
+
+    }
+    std::cout << "mu: " << mu[0] << " omega: " << omega[0] << " eigen_x" << eigen_x[0]<< std::endl;
+    std::cout << "mu_step: " << mu_step << " omega_step: " << omega_step << std::endl;
+
+
+    // TODO: dimension (1) is now hardcoded
+    // Eigen::VectorXd mu_grad = Eigen::VectorXd::Zero(1);
+    // Eigen::VectorXd omega_grad = Eigen::VectorXd::Zero(1);
+    // Eigen::VectorXd tmp_mu_grad = Eigen::VectorXd::Zero(1);
+    // double tmp_lp = 0.0;
+
+    // stan::model::gradient(lp, eigen_x, tmp_lp, tmp_mu_grad, &std::cout);
+
+    
+
+
+
+    // step size 1/(n+1) n is run 
+    //auto grd = model->log_prob_impl<false, false>(eigen_x, eigen_int, &std::cout);
 
     // Code copied from generated header file mean_model.hpp
     // stan::math::accumulator<double> lp_accum__;
@@ -48,166 +136,16 @@ int main() {
 
 
 
-    std::cout << "Num params r: " << model->num_params_r() << std::endl;
+    //std::cout << "Num params r: " << model->num_params_r() << std::endl;
     std::cout << "Hello world" << std::endl;
     return 0;
 }
 
-// wrapper for calls to lpdf and lpdf_grad
-// int wrapper(std::string stan_model_executable) {
-//     int x = 0;
-//     if (fork() == 0)
-//     {
-//         std::cout << "Child process" << std::endl;
-//         std::filesystem::path cur_path = std::filesystem::current_path();
-//         cur_path /= stan_model_executable;
-//         std::cout << cur_path << std::endl;
-        
-//         const char* args[] = {
-//             "bernoulli",
-//             "log_prob", 
-//             "jacobian=0", 
-//             "constrained_params=constrained.json",
-//             "data",
-//             "file=bernoulli.data.json",
-//             NULL};
+void troep_to_save() {
 
-//         int exec_status = execvp(cur_path.c_str(), const_cast<char**>(args));
-//         std::cout << "Exec status: " << exec_status << " errno: " << errno << std::endl;
-//         exit(exec_status);
-//     }
+    std::vector<double> x = std::vector<double>{0.2};
+    std::vector<int> y = std::vector<int>{1, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+    Eigen::Matrix<double, -1, 1> eigen_double(1);
+    eigen_double[0] = 0.2;
 
-//     int child_status = -1;
-//     wait(&child_status);
-
-//     // TODO: check child_status
-    
-//     std::cout << "Parent process, child status: " << child_status << std::endl;
-//     std::cout << std::filesystem::current_path() << std::endl;
-
-//     return 0;
-// }
-
-// class StanModel {
-//     private:
-//         std::string stan_model;
-//         std::string stan_model_name;
-//     public:
-//         StanModel(std::string stan_model_name) {
-//             std::filesystem::path cur_path = std::filesystem::current_path();
-//             cur_path /= stan_model_name;
-//             std::cout << cur_path << std::endl;
-//             stan_model = cur_path;
-//             stan_model_name = stan_model_name;
-//         }
-
-//         std::vector<double> log_prob(
-//             std::vector<std::pair<std::string, double>> constrained_params,
-//             std::vector<std::pair<std::string, std::variant<int, double, std::vector<int>, std::vector<double>>>> data) 
-//         {
-//             constrained_to_json(constrained_params);
-//             // Write data to file
-//             data_to_json(data);
-//             // Run stan model
-//             std::cout << "Run model: " << run_model();
-//             // Read output from CSV file
-//             // Return output
-
-//             return {0.0};
-//         }
-
-//         void data_to_json(std::vector<std::pair<std::string, std::variant<int, double, std::vector<int>, std::vector<double>>>> data) {
-//             rapidjson::Document document;
-//             document.SetObject();
-//             rapidjson::Document::AllocatorType& allocator = document.GetAllocator();
-
-//             for (auto d : data) {
-//                 rapidjson::Value key(d.first.c_str(), allocator);
-//                 if (std::holds_alternative<int>(d.second)) {
-//                     document.AddMember(key, std::get<int>(d.second), allocator);
-//                 } else if (std::holds_alternative<double>(d.second)) {
-//                     document.AddMember(key, std::get<double>(d.second), allocator);
-//                 } else if (std::holds_alternative<std::vector<int>>(d.second)) {
-//                     rapidjson::Value arr(rapidjson::kArrayType);
-//                     for (auto i : std::get<std::vector<int>>(d.second)) {
-//                         arr.PushBack(i, allocator);
-//                     }
-//                     document.AddMember(key, arr, allocator);
-//                 } else if (std::holds_alternative<std::vector<double>>(d.second)) {
-//                     rapidjson::Value arr(rapidjson::kArrayType);
-//                     for (auto i : std::get<std::vector<double>>(d.second)) {
-//                         arr.PushBack(i, allocator);
-//                     }
-//                     document.AddMember(key, arr, allocator);
-//                 }
-//             }
-
-//             std::ofstream stream("data.json");
-//             rapidjson::OStreamWrapper osw(stream);
-//             rapidjson::Writer<rapidjson::OStreamWrapper> writer(osw);
-//             document.Accept(writer);
-//         }
-
-//         void constrained_to_json(std::vector<std::pair<std::string, double>> constrained_params) {
-//             rapidjson::Document document;
-//             document.SetObject();
-//             rapidjson::Document::AllocatorType& allocator = document.GetAllocator();
-
-//             for (auto cparams : constrained_params) {
-//                 rapidjson::Value key(cparams.first.c_str(), allocator);
-//                 document.AddMember(key, cparams.second, allocator);
-//             }
-
-        
-//             std::ofstream stream("constrained.json");
-//             rapidjson::OStreamWrapper osw(stream);
-//             rapidjson::Writer<rapidjson::OStreamWrapper> writer(osw);
-//             document.Accept(writer);
-//         }
-
-//         int run_model() {
-//             if (fork() == 0)
-//             { // Inside if is child process
-                 
-//                 const char* args[] = {
-//                     stan_model_name.c_str(),
-//                     "log_prob", // This also returns gradients 
-//                     "jacobian=0", // Gradient without jacobian adjustments i.e. constrained 
-//                     "constrained_params=constrained.json",
-//                     "data",
-//                     "file=bernoulli.data.json",
-//                     NULL};
-
-//                 int exec_status = execvp(stan_model.c_str(), const_cast<char**>(args));
-//                 std::cout << "Exec status: " << exec_status << " errno: " << errno << std::endl;
-//                 exit(exec_status);
-//             }
-
-//             int child_status = -1;
-//             wait(&child_status);
-//             if (child_status != 0) {
-//                 std::cout << "Child process failed | Stan model not executed" << std::endl;
-//                 return child_status;
-//             }
-
-//             return 0;
-//         }
-// };
-
-// int main() {
-
-//     // Relative to the current working directory
-//     std::string stan_model_executable = "bernoulli";
-
-//     StanModel model(stan_model_executable);
-//     double tht = 0.2;
-//     std::vector<std::pair<std::string, double>> constrained_params = {{"theta", tht}};
-//     std::vector<std::pair<std::string, std::variant<int, double, std::vector<int>, std::vector<double>>>> data = {{"N", 10}, {"y", std::vector<int>{1, 0, 0, 0, 0, 0, 0, 0, 0, 1}}}; 
-
-//     model.log_prob(constrained_params, data);
-//     // model.constrained_to_json(constrained_params);
-//     // model.data_to_json(data);
-//     //int status = wrapper(stan_model_executable);
-
-//     return 0;
-// }
+}
